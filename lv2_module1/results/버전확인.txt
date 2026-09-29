@@ -1,0 +1,7 @@
+Tue Sep 29 10:27:51 AM KST 2026
+pa23
+arm-none-eabi-g++: error: unrecognized command-line option '-version'
+arm-none-eabi-g++: fatal error: no input files
+compilation terminated.
+Python 3.10.12
+pyserial 3.5
