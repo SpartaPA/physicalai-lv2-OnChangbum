@@ -1,0 +1,13 @@
+[INFO] [1791783092.351971668] [rosbag2_recorder]: Event publisher thread: Started
+[INFO] [1791783092.354694592] [rosbag2_recorder]: Starting recording to 'no_target_scene'
+[WARN] [1791783092.354716498] [rosbag2_recorder]: No input serialization format specified, using default rmw serialization format: 'cdr'.
+[INFO] [1791783092.356731254] [rosbag2_recorder]: Subscribed to topic '/camera/camera/color/image_raw'
+[INFO] [1791783092.357512611] [rosbag2_recorder]: Subscribed to topic '/camera/camera/color/camera_info'
+[INFO] [1791783092.357575990] [rosbag2_recorder]: Listening for topics...
+[INFO] [1791783092.357582408] [rosbag2_recorder]: Recording...
+[INFO] [1791783092.357767824] [rosbag2_recorder]: Topics discovery started.
+[INFO] [1791783092.357823442] [rosbag2_recorder]: All requested topics are subscribed. Stopping discovery...
+[INFO] [1791783092.357834308] [rosbag2_recorder]: Topics discovery stopped.
+[INFO] [1791783108.082378237] [rosbag2_cpp]: Writing remaining messages from cache to the bag. It may take a while
+[INFO] [1791783108.083315321] [rosbag2_recorder]: Recording stopped
+[INFO] [1791783108.086129786] [rosbag2_recorder]: Event publisher thread: Exited
