@@ -34,9 +34,3 @@ target_detector:
     show_window: false                         # 모니터가 있는 PC에서만 true (마우스로 픽셀 값 확인)
     log_dir: ~/lv2_module5_logs
     run_id: ''
-
-tracker_controller:
-  ros__parameters:
-    pose_time_source: stamp                    # stamp: 영상 stamp 시각의 모터 각도 사용(같은 Pi라 시계 동일)
-    camera_latency_s: 0.05                     # pose_time_source=receive 일 때만 사용 [s]
-    default_range_m: 0.6                       # 깊이 무효일 때 쓰는 거리 [m] #todo
