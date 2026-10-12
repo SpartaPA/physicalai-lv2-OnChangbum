@@ -10,8 +10,9 @@
 | 실행 파일 | `ros2 launch tracker_bringup perception.launch.py camera:=false config_dir:=<실험 설정 폴더>` (검출 노드 `target_detector`) |
 | 컴퓨터·ROS 2 | PC, Ubuntu 24.04.5, ROS 2 Lyrical, CycloneDDS, Python 3.12.3, OpenCV 4.6.0 ([environment.txt](results/environment.txt)) |
 | 카메라 | Intel RealSense D435, 컬러 640×480 `rgb8` 30 Hz |
-| 입력 | **직접 녹화한 rosbag** (실시간 Camera 아님). 같은 장소·같은 환경에서 목표 있음·목표 없음 장면을 각 15.68 s(영상 471장) 녹화 ([bag 정보](results/bag/)) |
-| 관찰 구간 | 목표 있음 bag의 **236번째 영상 1장**(header stamp `1791782778.179045410`)을 A·B 모든 실행에 똑같이 넣음. 목표 없음은 같은 bag 번호의 영상(stamp `1791783100.180469971`) 1장과 그 뒤 이어 재생한 약 8 s |
+| 입력 | **직접 녹화한 rosbag** (실시간 Camera 아님) |
+| 재생 자료 출처 | 본인이 위 PC와 D435로 같은 장소, 같은 환경, 같은 날의 비슷한 시간대에 녹화. 녹화 토픽 `/camera/camera/color/image_raw`, `/camera/camera/color/camera_info`. 목표 있음 `results/bag/target_scene`, 목표 없음 `results/bag/no_target_scene`, 각 15.68 s·영상 471장 ([metadata.yaml과 녹화 로그](results/bag/)) |
+| 관찰 구간 | 실험 1·2: 목표 있음 bag의 **236번째 영상 1장**(header stamp `1791782778.179045410`)을 A·B 모든 실행에 똑같이 넣음. 목표 없음: 목표 없음 bag의 236번째 영상 1장(stamp `1791783100.180469971`)과 그 뒤 이어 재생한 약 8 s. 토픽 구성 확인(2장): 목표 있음 bag 전체를 약 4분 반복 재생 |
 | 한 장 넣는 방법 | `ros2 bag play --start-paused` 후 `/rosbag2_player/seek`, `/rosbag2_player/play_next` 서비스 호출 (`scripts/send_one_frame.sh`) |
 
 모든 실험에서 깊이(`use_depth`), 실제 크기 검증(`size_check`), 번호 유지(`use_object_tracker`)는 껐다. 깊이를 녹화하지 않았고, `size_check`가 켜져 있으면 실험 2의 `min_area_px` 효과와 다른 필터가 섞이기 때문이다.
@@ -188,3 +189,4 @@ PC에서 처음 실행했을 때 검출 노드가 카메라 영상을 하나도 
 - Claude Code(Anthropic)로 Mask·Overlay 발행 코드 추가, 실험 도구(`scripts/`) 작성, 토픽 기록 명령 실행, README·보고서 초안 작성을 했다.
 - 팀 저장소 코드를 가져와 쓰는 방식과 실험 변수, A·B 값은 본인이 제안했다. 판정 기준은 AI가 제안했고, 본인이 실행 전에 확인하고 승인했다.
 - 보고서의 수치는 `results/`에 저장된 수신 결과와 비교 도구 출력에서 가져왔다.
+- 실험별 `/target` 값과 후보 수는 본인이 rqt 수신 화면(Overlay 상단 표시, Mask 모양)과 대조해 일치함을 확인했다.
