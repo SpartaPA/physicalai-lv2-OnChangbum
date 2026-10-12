@@ -1,0 +1,2 @@
+run_id,stamp_s,frame_id,frame_seq,width,height,detected,cx_px,cy_px,ex,ey,area_ratio,n_candidates,depth_valid,depth_valid_ratio,z_m,x_m,y_m,proc_ms,depth_dt_ms,pub_time_s,target_id,n_rejected,rot_speed_deg_s
+exp1_B,1791782778.179045,camera_color_optical_frame,1,640,480,1,352.9,342.0,0.1027,0.4248,0.00914,3,0,,,,,2.69,,1791790432.715816,,0,0.0
