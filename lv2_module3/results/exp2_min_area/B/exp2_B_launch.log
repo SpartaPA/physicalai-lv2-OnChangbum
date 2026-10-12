@@ -1,0 +1,5 @@
+[INFO] [launch]: All log files can be found below /home/pa4/.ros/log/2026-10-12-16-41-59-535949-pa4-Legion-Pro-5-16IAX10-76082
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [target_detector-1]: process started with pid [76089]
+[target_detector-1] [INFO] [1791790919.969061057] [target_detector]: run_id=exp2_B hsv=(102, 120, 40)~(110, 255, 255) min_area=3000.0 selection=priority use_depth=False detect_scale=1.0 size_check=False object_tracker=False publish_images=True
+[target_detector-1] [INFO] [1791790931.962556339] [target_detector]: processing FPS 0.1, mean proc 2.8 ms
