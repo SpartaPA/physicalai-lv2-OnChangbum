@@ -1,0 +1,4 @@
+# 모듈 3: bag 데이터 파일은 커서(수백 MB) 올리지 않는다. metadata.yaml과 녹화 로그는 올린다
+*.bag
+*.mcap
+*.db3

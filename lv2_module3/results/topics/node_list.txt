@@ -1,0 +1,6 @@
+$ ros2 node list
+# 2026-10-12 14:42:09 KST, 입력: results/bag/target_scene 반복 재생(--loop), 검출 노드 설정: results/topics/config
+/rosbag2_player
+/rqt_gui_cpp_node_45585
+/target_detector
+

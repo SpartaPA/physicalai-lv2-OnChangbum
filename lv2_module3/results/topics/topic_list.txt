@@ -1,0 +1,14 @@
+$ ros2 topic list -t
+# 2026-10-12 14:42:08 KST, 입력: results/bag/target_scene 반복 재생(--loop), 검출 노드 설정: results/topics/config
+/camera/camera/color/camera_info [sensor_msgs/msg/CameraInfo]
+/camera/camera/color/image_raw [sensor_msgs/msg/Image]
+/events/read_split [rosbag2_interfaces/msg/ReadSplitEvent]
+/parameter_events [rcl_interfaces/msg/ParameterEvent]
+/rosout [rcl_interfaces/msg/Log]
+/target [geometry_msgs/msg/PointStamped]
+/target/mask [sensor_msgs/msg/Image]
+/target/overlay [sensor_msgs/msg/Image]
+/target/position_cam [geometry_msgs/msg/PointStamped]
+/target/save_snapshot [std_msgs/msg/String]
+/target_depth [geometry_msgs/msg/PointStamped]
+

@@ -1,0 +1,20 @@
+$ ros2 topic hz /camera/camera/color/image_raw   # 약 7 s 측정, 마지막 평균
+# 2026-10-12 14:44:54 KST, 입력: results/bag/target_scene 반복 재생
+average rate: 29.636
+	min: 0.025s max: 0.101s std dev: 0.00527s window: 176
+
+$ ros2 topic hz /target/mask   # 약 7 s 측정, 마지막 평균
+# 2026-10-12 14:45:02 KST, 입력: results/bag/target_scene 반복 재생
+average rate: 29.988
+	min: 0.028s max: 0.039s std dev: 0.00159s window: 179
+
+$ ros2 topic hz /target/overlay   # 약 7 s 측정, 마지막 평균
+# 2026-10-12 14:45:10 KST, 입력: results/bag/target_scene 반복 재생
+average rate: 29.652
+	min: 0.025s max: 0.104s std dev: 0.00570s window: 176
+
+$ ros2 topic hz /target   # 약 7 s 측정, 마지막 평균
+# 2026-10-12 14:45:18 KST, 입력: results/bag/target_scene 반복 재생
+average rate: 29.981
+	min: 0.028s max: 0.038s std dev: 0.00109s window: 179
+

@@ -1,0 +1,12 @@
+$ ros2 service call /rosbag2_player/seek rosbag2_interfaces/srv/Seek "{time: {sec: 1791782778, nanosec: 200000000}}"
+requester: making request: rosbag2_interfaces.srv.Seek_Request(time=builtin_interfaces.msg.Time(sec=1791782778, nanosec=200000000))
+
+response:
+rosbag2_interfaces.srv.Seek_Response(success=True)
+
+$ ros2 service call /rosbag2_player/play_next rosbag2_interfaces/srv/PlayNext
+requester: making request: rosbag2_interfaces.srv.PlayNext_Request()
+
+response:
+rosbag2_interfaces.srv.PlayNext_Response(success=True)
+

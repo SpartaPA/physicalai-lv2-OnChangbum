@@ -1,0 +1,13 @@
+$ ros2 topic echo --once /target
+# 2026-10-12 14:42:14 KST, 입력: results/bag/target_scene 반복 재생(--loop), 검출 노드 설정: results/topics/config
+header:
+  stamp:
+    sec: 1791782771
+    nanosec: 774500244
+  frame_id: camera_color_optical_frame
+point:
+  x: 0.10210368626415534
+  y: 0.42595102583660915
+  z: 0.009246419270833334
+---
+

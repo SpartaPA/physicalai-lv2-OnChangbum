@@ -1,0 +1,461 @@
+#!/usr/bin/env python3
+"""파란색 목표 검출 노드 (인지).
+
+입력 (realsense2_camera)
+  /camera/camera/color/image_raw                   sensor_msgs/Image rgb8      30 Hz
+  /camera/camera/aligned_depth_to_color/image_raw  sensor_msgs/Image 16UC1 mm  30 Hz
+  /camera/camera/color/camera_info                 sensor_msgs/CameraInfo      30 Hz
+출력 (새 컬러 영상마다 1번, header = 입력 컬러 영상 header 그대로)
+  /target               PointStamped  x=ex, y=ey, z=면적비 (미검출: 0, 0, 0)
+  /target_depth         PointStamped  x=depth_valid(0/1), y=유효 픽셀 비율, z=z_m (무효면 0)
+  /target/position_cam  PointStamped  카메라 광학 좌표 X, Y, Z [m] (무효·미검출이면 NaN)
+  /target/mask          Image mono8   HSV inRange -> open·close 결과 (min_area 필터 전, publish_images)
+  /target/overlay       Image bgr8    후보(주황)·선택(초록)·제외(회색) 컨투어와 중심 표시 (publish_images)
+규칙 (docs/interface.md)
+  - 카메라가 멈추면 발행하지 않는다(이전 영상에 새 시각을 붙이지 않음). stamp가 증가하지 않는 영상은 버린다.
+  - 정상 영상에서 미검출이면 z=0을 발행한다(침묵 아님). 이전 좌표를 다시 쓰지 않는다.
+  - 깊이는 후보 판단에 쓸 수 있다: size_check(실제 면적 검증)와 object_tracker(번호 유지).
+    깊이 영상이 없거나 stamp가 안 맞으면 색·면적만으로 판단한다(깊이 때문에 검출이 멈추지 않음).
+  - object_tracker를 쓰면 /target은 '잡은 번호'의 물체다. 그 물체가 안 보이면 다른 물체가 보여도 z=0
+    (relock_after_s가 지나면 새 물체를 고른다). 기억 위치를 /target으로 내보내지 않는다.
+입력 (object_tracker용, 선택)
+  /pan_tilt/joint_states  sensor_msgs/JointState  모터 각도 [rad]·속도 [rad/s] (opencr_bridge가 발행)
+"""
+import csv
+import math
+import os
+import time
+from collections import deque
+from datetime import datetime
+
+import cv2
+import numpy as np
+import rclpy
+from cv_bridge import CvBridge
+from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+from rclpy.executors import ExternalShutdownException
+from geometry_msgs.msg import PointStamped
+from sensor_msgs.msg import CameraInfo, Image, JointState
+from std_msgs.msg import String
+
+from target_detector.detection import (DetectorConfig, find_and_measure, make_detection, select_candidate,
+                                          target_depth, draw_overlay, to_hsv)
+from target_detector.object_tracker import ObjectTracker, Observation, TargetLock, TrackerConfig
+
+try:                                     # 회전축 기준 좌표 변환은 제어 패키지의 것을 그대로 쓴다(값·부호 일치)
+    from tracker_controller import geometry as geo
+except ImportError:                      # 제어 패키지가 없는 컴퓨터: 카메라 좌표를 그대로 사용(회전 보정 없음)
+    geo = None
+
+NAN = float('nan')
+STAMP_RESTART_S = 1.0        # 이보다 크게 뒤로 간 영상 시각은 재전송이 아니라 시각 재시작으로 본다 [s]
+ROT_SPEED_MAX_AGE_S = 0.2    # 모터 회전 속도를 믿는 최대 나이 [s] (모터 상태 50 Hz의 10주기)
+
+
+def keep_previous(path):
+    """같은 이름의 기록이 있으면 지우지 않고 <이름>.prevN으로 옮긴다(같은 run_id를 다시 써도 이전 기록 보존)."""
+    if os.path.exists(path):
+        n = 1
+        while os.path.exists(f'{path}.prev{n}'):
+            n += 1
+        os.rename(path, f'{path}.prev{n}')
+    return path
+
+
+def stamp_ns(header):
+    return header.stamp.sec * 1_000_000_000 + header.stamp.nanosec
+
+
+class TargetDetector(Node):
+    def __init__(self):
+        super().__init__('target_detector')
+        p = lambda name, default: self.declare_parameter(name, default).value  # noqa: E731
+
+        # ---- 토픽 (docs/interface.md) ----
+        color_topic = p('color_topic', '/camera/camera/color/image_raw')
+        depth_topic = p('depth_topic', '/camera/camera/aligned_depth_to_color/image_raw')
+        info_topic = p('info_topic', '/camera/camera/color/camera_info')
+        target_topic = p('target_topic', '/target')                      # 재처리 시 /target_replay로 remap
+        depth_out_topic = p('depth_out_topic', '/target_depth')          # 📝 architecture 초안
+        position_topic = p('position_topic', '/target/position_cam')     # #todo 심화(목표 기억)용, 합의 필요
+        snapshot_topic = p('snapshot_topic', '/target/save_snapshot')    # #todo 합의
+        self.publish_position = p('publish_position', True)
+        mask_topic = p('mask_topic', '/target/mask')                     # 모듈 3: inRange·open·close 결과 (min_area 필터 전)
+        overlay_topic = p('overlay_topic', '/target/overlay')            # 모듈 3: draw_overlay 결과 (후보·선택 표시)
+        self.publish_images = p('publish_images', True)
+
+        # ---- 검출 설정 (config/hsv.yaml) ----
+        self.cfg = DetectorConfig(
+            hsv_lower=tuple(p('hsv_lower', [100, 120, 50])),
+            hsv_upper=tuple(p('hsv_upper', [130, 255, 255])),
+            morph_kernel=int(p('morph_kernel', 5)),
+            min_area_px=float(p('min_area_px', 150.0)),
+            selection=p('selection', 'largest'),
+            lock_gate_px=float(p('lock_gate_px', 80.0)),
+            depth_min_m=float(p('depth_min_m', 0.2)),
+            depth_max_m=float(p('depth_max_m', 3.0)),
+            depth_min_valid_ratio=float(p('depth_min_valid_ratio', 0.3)),
+            depth_erode_px=int(p('depth_erode_px', 3)),
+            detect_scale=float(p('detect_scale', 1.0)),
+            size_check=p('size_check', False),
+            obj_area_min_cm2=float(p('obj_area_min_cm2', 5.5)),
+            obj_area_max_cm2=float(p('obj_area_max_cm2', 30.0)),
+            similar_area_ratio=float(p('similar_area_ratio', 0.2)),
+            similar_depth_m=float(p('similar_depth_m', 0.03)),
+            similar_depth_ratio=float(p('similar_depth_ratio', 0.05)))
+        self.lock_timeout_s = p('lock_timeout_s', 0.5)
+        self.use_depth = p('use_depth', True)
+        self.depth_sync_tol_s = p('depth_sync_tol_s', 0.02)   # 컬러·깊이 stamp 차이 허용 [s]
+
+        # ---- 여러 물체 번호 유지 (object_tracker.py) ----
+        self.use_tracker = p('use_object_tracker', False)
+        self.tracker_cfg = TrackerConfig(
+            gate_m=float(p('track_gate_m', 0.04)),
+            reid_gate_m=float(p('track_reid_gate_m', 0.06)),
+            size_ratio_max=float(p('track_size_ratio_max', 1.6)),
+            velocity_window_s=float(p('track_velocity_window_s', 0.1)),
+            predict_horizon_s=float(p('track_predict_horizon_s', 0.5)),
+            assumed_range_m=float(p('track_assumed_range_m', 0.6)),
+            sync_error_s=float(p('track_sync_error_s', 0.02)),
+            fast_rotation_deg_s=float(p('track_fast_rotation_deg_s', 30.0)))
+        self.relock_after_s = float(p('relock_after_s', 3.0))
+        self.tracker = ObjectTracker(self.tracker_cfg)
+        self.lock = TargetLock(relock_after_s=self.relock_after_s)
+        # 모터 각도 -> 기하 각도 변환값. config/control.yaml의 공용 값(/**)을 제어 노드와 함께 쓴다
+        self.pan_direction = int(p('pan_direction', 1))
+        self.tilt_direction = int(p('tilt_direction', 1))
+        self.cam_forward = float(p('cam_forward_m', 0.0))
+        self.cam_up = float(p('cam_up_m', 0.0))
+        joint_topic = p('joint_state_topic', '/pan_tilt/joint_states')
+        self.joints = geo.JointHistory(keep_s=2.0) if geo else None
+        self.rot_speed_deg_s = 0.0
+        self.rot_speed_t = None            # 회전 속도를 받은 모터 상태 시각 [s]. 오래되면 0으로 본다
+        self.last_ids = {}
+        self.sim_joint_warned = False
+        self.depth_size_warned = False
+
+        # ---- 저장·표시 ----
+        self.save_dir = os.path.expanduser(p('save_dir', '~/lv2_module5_results/images'))
+        self.save_every_n = int(p('save_every_n', 0))          # 0: 주기 저장 안 함
+        self.show_window = p('show_window', False)             # 모니터가 있는 PC에서만 true
+        run_id = p('run_id', 'auto')
+        self.run_id = run_id if run_id not in ('', 'auto') else datetime.now().strftime('det_%Y%m%d_%H%M%S')
+        log_dir = os.path.expanduser(p('log_dir', '~/lv2_module5_logs'))
+        os.makedirs(log_dir, exist_ok=True)
+        os.makedirs(self.save_dir, exist_ok=True)
+        self.csv_file = open(keep_previous(os.path.join(log_dir, f'{self.run_id}_detect.csv')), 'w', newline='')
+        self.csv = csv.writer(self.csv_file)
+        self.csv.writerow(['run_id', 'stamp_s', 'frame_id', 'frame_seq', 'width', 'height', 'detected',
+                           'cx_px', 'cy_px', 'ex', 'ey', 'area_ratio', 'n_candidates',
+                           'depth_valid', 'depth_valid_ratio', 'z_m', 'x_m', 'y_m',
+                           'proc_ms', 'depth_dt_ms', 'pub_time_s',
+                           'target_id', 'n_rejected', 'rot_speed_deg_s'])   # 뒤에 추가한 열 (기존 열 순서 유지)
+
+        # ---- 상태 ----
+        self.bridge = CvBridge()
+        self.intrinsics = None             # (fx, fy, cx, cy)
+        self.depth_cache = deque(maxlen=10)
+        self.last_stamp = None
+        self.prev_center, self.prev_center_t = None, None
+        self.frame_seq = 0
+        self.snapshot_label = None
+        self.fps_count, self.fps_t0, self.proc_sum = 0, time.monotonic(), 0.0
+        self.mouse = (-1, -1)
+        if self.show_window:
+            cv2.namedWindow('target_detector')
+            cv2.setMouseCallback('target_detector', self.on_mouse)   # mouse_test.py와 같은 픽셀 조회
+
+        # ---- ROS ----
+        sensor_qos = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT,
+                                history=HistoryPolicy.KEEP_LAST, depth=1)   # RELIABLE 발행자와 호환
+        depth_qos = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT,
+                               history=HistoryPolicy.KEEP_LAST, depth=5)
+        out_qos = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT,
+                             history=HistoryPolicy.KEEP_LAST, depth=1)     # 발제 기본 QoS
+        self.create_subscription(CameraInfo, info_topic, self.on_info, sensor_qos)
+        if self.use_depth:
+            self.create_subscription(Image, depth_topic, self.on_depth, depth_qos)
+        self.create_subscription(Image, color_topic, self.on_color, sensor_qos)
+        self.create_subscription(String, snapshot_topic, self.on_snapshot, 10)
+        self.create_timer(1.0, self.csv_file.flush)       # 기록을 1 s마다 디스크로 (강제 종료 때도 직전까지 남김)
+        if self.use_tracker:
+            self.create_subscription(JointState, joint_topic, self.on_joint, 10)
+            if geo is None:
+                self.get_logger().warning('tracker_controller 없음: 회전 보정 없이 카메라 좌표로 번호를 유지합니다')
+        self.target_pub = self.create_publisher(PointStamped, target_topic, out_qos)
+        self.depth_pub = self.create_publisher(PointStamped, depth_out_topic, out_qos)
+        self.pos_pub = self.create_publisher(PointStamped, position_topic, out_qos)
+        if self.publish_images:
+            # RELIABLE 발행은 BEST_EFFORT·RELIABLE 구독자(rqt_image_view 등) 모두와 호환된다
+            img_qos = QoSProfile(reliability=ReliabilityPolicy.RELIABLE,
+                                 history=HistoryPolicy.KEEP_LAST, depth=1)
+            self.mask_pub = self.create_publisher(Image, mask_topic, img_qos)
+            self.overlay_pub = self.create_publisher(Image, overlay_topic, img_qos)
+        self.get_logger().info(
+            f'run_id={self.run_id} hsv={self.cfg.hsv_lower}~{self.cfg.hsv_upper} '
+            f'min_area={self.cfg.min_area_px} selection={self.cfg.selection} use_depth={self.use_depth} '
+            f'detect_scale={self.cfg.detect_scale} size_check={self.cfg.size_check} '
+            f'object_tracker={self.use_tracker} publish_images={self.publish_images}')
+
+    # ================= 콜백 =================
+    def on_info(self, msg):
+        self.intrinsics = (msg.k[0], msg.k[4], msg.k[2], msg.k[5])   # fx, fy, cx, cy
+
+    def on_depth(self, msg):
+        self.depth_cache.append((stamp_ns(msg.header), msg))
+
+    def on_joint(self, msg):
+        """모터 각도 기록 (영상 촬영 시각의 자세를 보간하기 위해). position [rad] -> [deg]"""
+        if len(msg.position) < 2:
+            return
+        if list(msg.name[:2]) != ['pan', 'tilt']:      # dry_run의 시뮬레이션 각도(pan_sim)는 실제 카메라 자세가 아니다
+            if not self.sim_joint_warned:
+                self.get_logger().warning(f'joint_states {list(msg.name)} 무시: 실제 모터 각도가 아님 (회전 보정 없이 동작)')
+                self.sim_joint_warned = True
+            return
+        t = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        if self.joints is not None:
+            self.joints.add(t, math.degrees(msg.position[0]), math.degrees(msg.position[1]))
+        if len(msg.velocity) >= 2 and all(math.isfinite(v) for v in msg.velocity[:2]):
+            self.rot_speed_deg_s = max(abs(math.degrees(v)) for v in msg.velocity[:2])
+            self.rot_speed_t = t
+
+    def rot_speed_at(self, t_img):
+        """영상 시각의 회전 속도. 모터 상태가 ROT_SPEED_MAX_AGE_S보다 오래되면(브리지 정지·bag에 없음) 0으로 본다."""
+        if self.rot_speed_t is None or abs(t_img - self.rot_speed_t) > ROT_SPEED_MAX_AGE_S:
+            return 0.0
+        return self.rot_speed_deg_s
+
+    def reset_tracking_state(self, ns):
+        """영상 시각이 다시 시작될 때(bag 재재생·카메라 재시작) 시각에 묶인 상태를 비운다(새 시각 근처의 깊이는 남긴다)."""
+        fresh = [d for d in self.depth_cache if abs(d[0] - ns) * 1e-9 <= STAMP_RESTART_S]
+        self.depth_cache.clear()
+        self.depth_cache.extend(fresh)
+        self.prev_center, self.prev_center_t = None, None
+        self.tracker = ObjectTracker(self.tracker_cfg)
+        self.lock = TargetLock(relock_after_s=self.relock_after_s)
+        if self.joints is not None:
+            self.joints = geo.JointHistory(keep_s=self.joints.keep_s)
+        self.rot_speed_deg_s, self.rot_speed_t = 0.0, None
+
+    def to_base(self, p_opt, t):
+        """카메라 광학 좌표의 점 -> 회전축 기준 좌표. 각도를 모르면 카메라 좌표를 그대로 쓴다."""
+        joint = self.joints.at(t) if self.joints is not None else None
+        if geo is None or joint is None:
+            return p_opt
+        pan_g = -self.pan_direction * math.radians(joint[0])     # controller_node.motor_to_geo와 같은 식
+        tilt_g = -self.tilt_direction * math.radians(joint[1])
+        return geo.cam_to_base(p_opt, pan_g, tilt_g, self.cam_forward, self.cam_up)
+
+    def observations(self, cands, t):
+        """후보 -> object_tracker 관측 (방향은 항상, 3D 위치는 깊이가 있을 때만)."""
+        fx, fy, ppx, ppy = self.intrinsics
+        obs = []
+        for c in cands:
+            ray = ((c.cx - ppx) / fx, (c.cy - ppy) / fy, 1.0)
+            o, r = self.to_base((0.0, 0.0, 0.0), t), self.to_base(ray, t)
+            d = tuple(a - b for a, b in zip(r, o))                     # 회전만 적용한 방향
+            n = math.sqrt(sum(x * x for x in d))
+            obs.append(Observation(bearing=tuple(x / n for x in d),
+                                   pos=self.to_base(c.pos_cam, t) if c.pos_cam else None,
+                                   area_cm2=c.area_cm2))
+        return obs
+
+    def on_snapshot(self, msg):
+        self.snapshot_label = msg.data or 'snapshot'      # 다음 영상의 원본·마스크·검출 이미지를 저장
+
+    def on_mouse(self, event, x, y, flags, param):
+        if event == cv2.EVENT_MOUSEMOVE:
+            self.mouse = (x, y)
+
+    def find_depth(self, ns):
+        """컬러 영상과 stamp가 가장 가까운 정렬 깊이 영상. 허용 차이를 넘으면 None."""
+        if not self.depth_cache:
+            return None, math.nan
+        best = min(self.depth_cache, key=lambda d: abs(d[0] - ns))
+        dt = abs(best[0] - ns) * 1e-9
+        if dt > self.depth_sync_tol_s:
+            return None, dt * 1e3
+        msg = best[1]
+        img = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
+        scale = 0.001 if msg.encoding in ('16UC1', 'mono16') else 1.0   # 16UC1: mm, 32FC1: m
+        return (img, scale), dt * 1e3
+
+    def on_color(self, msg):
+        ns = stamp_ns(msg.header)
+        if self.last_stamp is not None and ns <= self.last_stamp:
+            back_s = (self.last_stamp - ns) * 1e-9
+            if back_s <= STAMP_RESTART_S:
+                return                                    # 같은/과거 영상(재전송): 발행하지 않음
+            # 크게 뒤로 가면 시각이 다시 시작된 것(bag 재재생·--loop·카메라 재시작). 그대로 두면 이후 영상을 모두 버린다
+            self.get_logger().warning(f'영상 시각이 {back_s:.1f} s 뒤로 갔습니다(시각 재시작): 번호 유지·깊이 대기 상태를 초기화합니다')
+            self.reset_tracking_state(ns)
+        self.last_stamp = ns
+        try:
+            self.process(msg, ns)
+        except Exception as e:   # 한 프레임의 오류(인코딩·빈 영상 등)로 노드 전체가 멈추지 않게: 이 프레임만 건너뛴다(발행 없음)
+            if not rclpy.ok():
+                raise
+            self.get_logger().error(f'프레임 처리 실패, 건너뜀: {e!r}', throttle_duration_sec=5.0)
+
+    def process(self, msg, ns):
+        t_start = time.perf_counter()
+        self.frame_seq += 1
+
+        image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
+        encoding = msg.encoding
+        now = time.monotonic()
+        prev = self.prev_center if (self.prev_center_t and now - self.prev_center_t < self.lock_timeout_s) else None
+
+        # 깊이를 먼저 찾는다: 후보마다 실제 크기를 재고(size_check) 번호를 붙이는 데(object_tracker) 쓴다
+        dres, depth_dt_ms, depth_pack = None, math.nan, None
+        if self.use_depth:
+            depth_pack, depth_dt_ms = self.find_depth(ns)
+        if depth_pack is not None and depth_pack[0].shape[:2] != image.shape[:2]:
+            # 정렬되지 않은 깊이(다른 해상도·토픽)는 픽셀이 맞지 않아 후보 크기·/target_depth·위치 모두에 쓰지 않는다
+            if not self.depth_size_warned:
+                self.get_logger().warning(f'깊이 {depth_pack[0].shape[1]}x{depth_pack[0].shape[0]}가 컬러 '
+                                          f'{image.shape[1]}x{image.shape[0]}와 달라 깊이를 쓰지 않습니다(정렬 Depth 토픽 확인)')
+                self.depth_size_warned = True
+            depth_pack = None
+        depth, scale = depth_pack if depth_pack is not None else (None, 0.001)
+        h, w = image.shape[:2]
+        cands, rejected, mask = find_and_measure(image, encoding, self.cfg, depth, scale, self.intrinsics)
+
+        def pick():
+            return select_candidate(cands, self.cfg, prev, w, h)
+
+        self.last_ids = {}
+        if self.use_tracker and self.intrinsics is not None:
+            t_img = ns * 1e-9                              # 같은 Pi라 영상 stamp와 모터 상태 시계가 같다
+            self.last_ids = self.tracker.update(t_img, self.observations(cands, t_img), self.rot_speed_at(t_img))
+            i = self.lock.choose(t_img, self.last_ids, self.tracker, pick)
+        else:
+            i = pick()
+        det = make_detection(cands, rejected, i, w, h)
+        if det.detected:
+            self.prev_center, self.prev_center_t = (det.cx, det.cy), now
+            if depth is not None:
+                dres = target_depth(depth, det.contour, self.cfg, scale, self.intrinsics, (det.cx, det.cy))
+
+        self.publish(msg.header, det, dres)
+        pub_time_s = self.get_clock().now().nanoseconds * 1e-9   # 발행 시각 - stamp = 촬영(또는 드라이버) -> 발행 지연
+        proc_ms = (time.perf_counter() - t_start) * 1e3
+        self.log(msg, image, det, dres, proc_ms, depth_dt_ms, pub_time_s)
+        if self.publish_images:                           # 처리 시간(proc_ms) 측정 뒤에 발행해 기존 기록 값에 섞지 않는다
+            self.publish_images_for(msg.header, image, encoding, mask, det, dres)
+        if self.save_every_n > 0 and self.frame_seq % self.save_every_n == 0:
+            self.save_images(image, encoding, mask, det, dres, f'f{self.frame_seq:06d}')
+        if self.snapshot_label:
+            # 프레임 번호를 붙여 같은 라벨로 여러 번 찍어도 덮어쓰지 않는다 (2026-10-06: 'normal' 4번이 1장만 남음)
+            self.save_images(image, encoding, mask, det, dres, f'{self.snapshot_label}_f{self.frame_seq:06d}')
+            self.get_logger().info(f'snapshot saved: {self.snapshot_label}')
+            self.snapshot_label = None
+        if self.show_window:
+            self.show(image, encoding, det, dres, depth_pack)
+
+    # ================= 출력 =================
+    def publish(self, header, det, dres):
+        t = PointStamped()
+        t.header = header                                  # 원본 영상 stamp·frame_id 유지
+        if det.detected:
+            t.point.x, t.point.y, t.point.z = det.ex, det.ey, det.area_ratio
+        self.target_pub.publish(t)                         # 미검출이면 (0, 0, 0)
+
+        d = PointStamped()
+        d.header = header
+        valid = dres is not None and dres.valid
+        d.point.x = 1.0 if valid else 0.0
+        d.point.y = dres.valid_ratio if dres is not None else 0.0
+        d.point.z = dres.z_m if valid else 0.0
+        self.depth_pub.publish(d)
+
+        if self.publish_position:
+            pos = PointStamped()
+            pos.header = header
+            pos.point.x, pos.point.y, pos.point.z = ((dres.x_m, dres.y_m, dres.z_m)
+                                                     if valid and math.isfinite(dres.x_m) else (NAN, NAN, NAN))
+            self.pos_pub.publish(pos)
+
+    def log(self, msg, image, det, dres, proc_ms, depth_dt_ms, pub_time_s):
+        f = lambda v, n=4: '' if v is None or not math.isfinite(v) else f'{v:.{n}f}'  # noqa: E731
+        h, w = image.shape[:2]
+        dv = dres is not None and dres.valid
+        self.csv.writerow([self.run_id, f(stamp_ns(msg.header) * 1e-9, 6), msg.header.frame_id, self.frame_seq,
+                           w, h, int(det.detected), f(det.cx, 1), f(det.cy, 1), f(det.ex), f(det.ey),
+                           f(det.area_ratio, 5), det.n_candidates, int(dv),
+                           f(dres.valid_ratio if dres else None, 3), f(dres.z_m if dv else None),
+                           f(dres.x_m if dv else None), f(dres.y_m if dv else None),
+                           f(proc_ms, 2), f(depth_dt_ms, 2), f(pub_time_s, 6),
+                           self.last_ids.get(det.index, '') if det.detected else '', len(det.rejected),
+                           f(self.rot_speed_at(stamp_ns(msg.header) * 1e-9), 1)])
+        # 처리 FPS: 처리 완료 프레임 수 / 실제 경과 초 (발제 문제 4 정의). 5초마다 로그
+        self.fps_count += 1
+        self.proc_sum += proc_ms
+        elapsed = time.monotonic() - self.fps_t0
+        if elapsed >= 5.0:
+            self.get_logger().info(f'processing FPS {self.fps_count / elapsed:.1f}, '
+                                   f'mean proc {self.proc_sum / self.fps_count:.1f} ms')
+            self.fps_count, self.fps_t0, self.proc_sum = 0, time.monotonic(), 0.0
+
+    def publish_images_for(self, header, image, encoding, mask, det, dres):
+        """Mask와 검출 Overlay를 이미지 토픽으로 발행한다. header는 입력 컬러 영상 그대로(같은 프레임임을 stamp로 확인)."""
+        m = self.bridge.cv2_to_imgmsg(mask, encoding='mono8')                 # 255 = HSV 범위 안(전경), 0 = 배경
+        m.header = header
+        self.mask_pub.publish(m)
+        bgr = cv2.cvtColor(image, cv2.COLOR_RGB2BGR) if encoding == 'rgb8' else image
+        o = self.bridge.cv2_to_imgmsg(draw_overlay(bgr, det, dres, self.last_ids), encoding='bgr8')
+        o.header = header
+        self.overlay_pub.publish(o)
+
+    def save_images(self, image, encoding, mask, det, dres, label):
+        bgr = cv2.cvtColor(image, cv2.COLOR_RGB2BGR) if encoding == 'rgb8' else image
+        base = os.path.join(self.save_dir, f'{self.run_id}_{label}')
+        cv2.imwrite(base + '_raw.png', bgr)                 # 원본
+        cv2.imwrite(base + '_mask.png', mask)               # 마스크
+        cv2.imwrite(base + '_detect.png', draw_overlay(bgr, det, dres, self.last_ids))   # 검출
+
+    def show(self, image, encoding, det, dres, depth_pack):
+        """mouse_test.py처럼 커서 픽셀의 RGB·HSV·깊이를 표시한다 (HSV 범위 조정용)."""
+        bgr = cv2.cvtColor(image, cv2.COLOR_RGB2BGR) if encoding == 'rgb8' else image
+        out = draw_overlay(bgr, det, dres, self.last_ids)
+        u, v = self.mouse
+        h, w = out.shape[:2]
+        if 0 <= u < w and 0 <= v < h:
+            b, g, r = (int(c) for c in bgr[v, u])
+            hh, ss, vv = (int(c) for c in to_hsv(image[v:v + 1, u:u + 1], encoding)[0, 0])
+            txt = f'({u},{v}) RGB {r},{g},{b}  HSV {hh},{ss},{vv}'
+            if depth_pack is not None:
+                txt += f'  D {float(depth_pack[0][v, u]) * depth_pack[1]:.3f} m'
+            cv2.drawMarker(out, (u, v), (0, 255, 0), cv2.MARKER_CROSS, 20, 1)
+            cv2.rectangle(out, (0, h - 22), (w, h), (0, 0, 0), -1)
+            cv2.putText(out, txt, (6, h - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
+        cv2.imshow('target_detector', out)
+        cv2.waitKey(1)
+
+    def close(self):
+        self.csv_file.close()
+        if self.show_window:
+            cv2.destroyAllWindows()
+
+
+def main():
+    rclpy.init()
+    node = TargetDetector()
+    try:
+        rclpy.spin(node)
+    except (KeyboardInterrupt, ExternalShutdownException):   # Ctrl+C / launch 종료(SIGINT·SIGTERM)
+        pass
+    except Exception:
+        if rclpy.ok():   # 종료 신호로 context가 닫힌 뒤 콜백이 발행하다 난 오류만 무시
+            raise
+    finally:
+        node.close()
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

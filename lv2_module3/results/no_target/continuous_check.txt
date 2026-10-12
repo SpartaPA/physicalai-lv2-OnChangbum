@@ -1,0 +1,46 @@
+# 2026-10-12 16:47:25 KST 목표 없음 bag(results/bag/no_target_scene)을 236번째 프레임 뒤부터 이어서 재생(ros2 service call /rosbag2_player/resume)하며 측정
+# 검출 노드 설정: results/no_target/config (H 하한 102, min_area_px 100)
+
+$ ros2 service call /rosbag2_player/resume rosbag2_interfaces/srv/Resume
+rosbag2_interfaces.srv.Resume_Response(return_code=0, error_string='')
+
+$ ros2 topic hz /camera/camera/color/image_raw   # 약 8 s, 마지막 평균
+average rate: 29.979
+	min: 0.027s max: 0.039s std dev: 0.00121s window: 180
+
+$ ros2 topic hz /target   # 약 8 s, 마지막 평균
+average rate: 29.980
+	min: 0.026s max: 0.039s std dev: 0.00135s window: 180
+
+$ ros2 topic echo /target   # 받은 메시지 수와 앞 3개
+받은 메시지 수: 185
+point 값 종류:  x: 0.0  y: 0.0  z: 0.0 
+header:
+  stamp:
+    sec: 1791783100
+    nanosec: 213830322
+  frame_id: camera_color_optical_frame
+point:
+  x: 0.0
+  y: 0.0
+  z: 0.0
+---
+header:
+  stamp:
+    sec: 1791783100
+    nanosec: 247190430
+  frame_id: camera_color_optical_frame
+point:
+  x: 0.0
+  y: 0.0
+  z: 0.0
+---
+header:
+  stamp:
+    sec: 1791783100
+    nanosec: 280550537
+  frame_id: camera_color_optical_frame
+point:
+  x: 0.0
+  y: 0.0
+  z: 0.0

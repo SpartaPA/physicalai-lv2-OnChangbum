@@ -1,0 +1,45 @@
+raw:
+  topic: /camera/camera/color/image_raw
+  received: true
+  header:
+    sec: 1791782778
+    nanosec: 179045410
+    frame_id: camera_color_optical_frame
+  encoding: rgb8
+  width: 640
+  height: 480
+  file: exp2_A_raw.png
+mask:
+  topic: /target/mask
+  received: true
+  header:
+    sec: 1791782778
+    nanosec: 179045410
+    frame_id: camera_color_optical_frame
+  encoding: mono8
+  width: 640
+  height: 480
+  file: exp2_A_mask.png
+  white_px: 2939
+overlay:
+  topic: /target/overlay
+  received: true
+  header:
+    sec: 1791782778
+    nanosec: 179045410
+    frame_id: camera_color_optical_frame
+  encoding: bgr8
+  width: 640
+  height: 480
+  file: exp2_A_overlay.png
+/target:
+  topic: /target
+  received: true
+  header:
+    sec: 1791782778
+    nanosec: 179045410
+    frame_id: camera_color_optical_frame
+  point:
+    x: 0.10273824900528528
+    y: 0.4248253063325215
+    z: 0.0091357421875
