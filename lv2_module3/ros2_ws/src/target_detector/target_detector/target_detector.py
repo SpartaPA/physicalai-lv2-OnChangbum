@@ -9,6 +9,8 @@
   /target               PointStamped  x=ex, y=ey, z=면적비 (미검출: 0, 0, 0)
   /target_depth         PointStamped  x=depth_valid(0/1), y=유효 픽셀 비율, z=z_m (무효면 0)
   /target/position_cam  PointStamped  카메라 광학 좌표 X, Y, Z [m] (무효·미검출이면 NaN)
+  /target/mask          Image mono8   HSV inRange -> open·close 결과 (min_area 필터 전, publish_images)
+  /target/overlay       Image bgr8    후보(주황)·선택(초록)·제외(회색) 컨투어와 중심 표시 (publish_images)
 규칙 (docs/interface.md)
   - 카메라가 멈추면 발행하지 않는다(이전 영상에 새 시각을 붙이지 않음). stamp가 증가하지 않는 영상은 버린다.
   - 정상 영상에서 미검출이면 z=0을 발행한다(침묵 아님). 이전 좌표를 다시 쓰지 않는다.
@@ -79,6 +81,9 @@ class TargetDetector(Node):
         position_topic = p('position_topic', '/target/position_cam')     # #todo 심화(목표 기억)용, 합의 필요
         snapshot_topic = p('snapshot_topic', '/target/save_snapshot')    # #todo 합의
         self.publish_position = p('publish_position', True)
+        mask_topic = p('mask_topic', '/target/mask')                     # 모듈 3: inRange·open·close 결과 (min_area 필터 전)
+        overlay_topic = p('overlay_topic', '/target/overlay')            # 모듈 3: draw_overlay 결과 (후보·선택 표시)
+        self.publish_images = p('publish_images', True)
 
         # ---- 검출 설정 (config/hsv.yaml) ----
         self.cfg = DetectorConfig(
@@ -181,11 +186,17 @@ class TargetDetector(Node):
         self.target_pub = self.create_publisher(PointStamped, target_topic, out_qos)
         self.depth_pub = self.create_publisher(PointStamped, depth_out_topic, out_qos)
         self.pos_pub = self.create_publisher(PointStamped, position_topic, out_qos)
+        if self.publish_images:
+            # RELIABLE 발행은 BEST_EFFORT·RELIABLE 구독자(rqt_image_view 등) 모두와 호환된다
+            img_qos = QoSProfile(reliability=ReliabilityPolicy.RELIABLE,
+                                 history=HistoryPolicy.KEEP_LAST, depth=1)
+            self.mask_pub = self.create_publisher(Image, mask_topic, img_qos)
+            self.overlay_pub = self.create_publisher(Image, overlay_topic, img_qos)
         self.get_logger().info(
             f'run_id={self.run_id} hsv={self.cfg.hsv_lower}~{self.cfg.hsv_upper} '
             f'min_area={self.cfg.min_area_px} selection={self.cfg.selection} use_depth={self.use_depth} '
             f'detect_scale={self.cfg.detect_scale} size_check={self.cfg.size_check} '
-            f'object_tracker={self.use_tracker}')
+            f'object_tracker={self.use_tracker} publish_images={self.publish_images}')
 
     # ================= 콜백 =================
     def on_info(self, msg):
@@ -332,6 +343,8 @@ class TargetDetector(Node):
         pub_time_s = self.get_clock().now().nanoseconds * 1e-9   # 발행 시각 - stamp = 촬영(또는 드라이버) -> 발행 지연
         proc_ms = (time.perf_counter() - t_start) * 1e3
         self.log(msg, image, det, dres, proc_ms, depth_dt_ms, pub_time_s)
+        if self.publish_images:                           # 처리 시간(proc_ms) 측정 뒤에 발행해 기존 기록 값에 섞지 않는다
+            self.publish_images_for(msg.header, image, encoding, mask, det, dres)
         if self.save_every_n > 0 and self.frame_seq % self.save_every_n == 0:
             self.save_images(image, encoding, mask, det, dres, f'f{self.frame_seq:06d}')
         if self.snapshot_label:
@@ -385,6 +398,16 @@ class TargetDetector(Node):
             self.get_logger().info(f'processing FPS {self.fps_count / elapsed:.1f}, '
                                    f'mean proc {self.proc_sum / self.fps_count:.1f} ms')
             self.fps_count, self.fps_t0, self.proc_sum = 0, time.monotonic(), 0.0
+
+    def publish_images_for(self, header, image, encoding, mask, det, dres):
+        """Mask와 검출 Overlay를 이미지 토픽으로 발행한다. header는 입력 컬러 영상 그대로(같은 프레임임을 stamp로 확인)."""
+        m = self.bridge.cv2_to_imgmsg(mask, encoding='mono8')                 # 255 = HSV 범위 안(전경), 0 = 배경
+        m.header = header
+        self.mask_pub.publish(m)
+        bgr = cv2.cvtColor(image, cv2.COLOR_RGB2BGR) if encoding == 'rgb8' else image
+        o = self.bridge.cv2_to_imgmsg(draw_overlay(bgr, det, dres, self.last_ids), encoding='bgr8')
+        o.header = header
+        self.overlay_pub.publish(o)
 
     def save_images(self, image, encoding, mask, det, dres, label):
         bgr = cv2.cvtColor(image, cv2.COLOR_RGB2BGR) if encoding == 'rgb8' else image

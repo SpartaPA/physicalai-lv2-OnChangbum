@@ -16,6 +16,9 @@ target_detector:
     depth_out_topic: /target_depth             # x=depth_valid, y=유효 비율, z=z_m
     snapshot_topic: /target/save_snapshot      # #todo
     publish_position: true
+    mask_topic: /target/mask                   # 모듈 3: Mask 이미지 (mono8, min_area 필터 전)
+    overlay_topic: /target/overlay             # 모듈 3: 검출 Overlay 이미지 (bgr8)
+    publish_images: true                       # 모듈 3: Mask·Overlay 이미지 토픽 발행
 
     # ---- 깊이 (기록·심화용, 제어 입력 아님) ----
     use_depth: true
