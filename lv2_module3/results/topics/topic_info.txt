@@ -1,0 +1,126 @@
+$ ros2 topic info -v /camera/camera/color/image_raw
+# 2026-10-12 14:42:09 KST, 입력: results/bag/target_scene 반복 재생(--loop), 검출 노드 설정: results/topics/config
+Type: sensor_msgs/msg/Image
+
+Publisher count: 1
+
+Node name: rosbag2_player
+Node namespace: /
+Topic type: sensor_msgs/msg/Image
+Topic type hash: RIHS01_d31d41a9a4c4bc8eae9be757b0beed306564f7526c88ea6a4588fb9582527d47
+Endpoint type: PUBLISHER
+GID: 01.10.b7.f1.17.9a.01.46.a4.9d.77.21.00.00.28.03
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): KEEP_LAST (10)
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Subscription count: 1
+
+Node name: target_detector
+Node namespace: /
+Topic type: sensor_msgs/msg/Image
+Topic type hash: RIHS01_d31d41a9a4c4bc8eae9be757b0beed306564f7526c88ea6a4588fb9582527d47
+Endpoint type: SUBSCRIPTION
+GID: 01.10.24.b4.3c.57.10.26.bd.a0.15.6f.00.00.2a.04
+QoS profile:
+  Reliability: BEST_EFFORT
+  History (Depth): KEEP_LAST (1)
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+
+$ ros2 topic info -v /target/mask
+# 2026-10-12 14:42:09 KST, 입력: results/bag/target_scene 반복 재생(--loop), 검출 노드 설정: results/topics/config
+Type: sensor_msgs/msg/Image
+
+Publisher count: 1
+
+Node name: target_detector
+Node namespace: /
+Topic type: sensor_msgs/msg/Image
+Topic type hash: RIHS01_d31d41a9a4c4bc8eae9be757b0beed306564f7526c88ea6a4588fb9582527d47
+Endpoint type: PUBLISHER
+GID: 01.10.24.b4.3c.57.10.26.bd.a0.15.6f.00.00.34.03
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): KEEP_LAST (1)
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Subscription count: 0
+
+
+$ ros2 topic info -v /target/overlay
+# 2026-10-12 14:42:09 KST, 입력: results/bag/target_scene 반복 재생(--loop), 검출 노드 설정: results/topics/config
+Type: sensor_msgs/msg/Image
+
+Publisher count: 1
+
+Node name: target_detector
+Node namespace: /
+Topic type: sensor_msgs/msg/Image
+Topic type hash: RIHS01_d31d41a9a4c4bc8eae9be757b0beed306564f7526c88ea6a4588fb9582527d47
+Endpoint type: PUBLISHER
+GID: 01.10.24.b4.3c.57.10.26.bd.a0.15.6f.00.00.36.03
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): KEEP_LAST (1)
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Subscription count: 1
+
+Node name: rqt_gui_cpp_node_45585
+Node namespace: /
+Topic type: sensor_msgs/msg/Image
+Topic type hash: RIHS01_d31d41a9a4c4bc8eae9be757b0beed306564f7526c88ea6a4588fb9582527d47
+Endpoint type: SUBSCRIPTION
+GID: 01.10.41.91.ca.05.7c.1e.3b.14.a3.6f.00.00.29.04
+QoS profile:
+  Reliability: BEST_EFFORT
+  History (Depth): KEEP_LAST (5)
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+
+$ ros2 topic info -v /target
+# 2026-10-12 14:42:10 KST, 입력: results/bag/target_scene 반복 재생(--loop), 검출 노드 설정: results/topics/config
+Type: geometry_msgs/msg/PointStamped
+
+Publisher count: 1
+
+Node name: target_detector
+Node namespace: /
+Topic type: geometry_msgs/msg/PointStamped
+Topic type hash: RIHS01_4c0296af86e01e562e9e0405d138a01537247580076c58ea38d7923ac1045897
+Endpoint type: PUBLISHER
+GID: 01.10.24.b4.3c.57.10.26.bd.a0.15.6f.00.00.2e.03
+QoS profile:
+  Reliability: BEST_EFFORT
+  History (Depth): KEEP_LAST (1)
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Subscription count: 0
+
+

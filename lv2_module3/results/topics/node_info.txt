@@ -1,0 +1,30 @@
+$ ros2 node info /target_detector
+# 2026-10-12 14:42:10 KST, 입력: results/bag/target_scene 반복 재생(--loop), 검출 노드 설정: results/topics/config
+/target_detector
+  Subscribers:
+    /camera/camera/color/camera_info: sensor_msgs/msg/CameraInfo
+    /camera/camera/color/image_raw: sensor_msgs/msg/Image
+    /target/save_snapshot: std_msgs/msg/String
+  Publishers:
+    /parameter_events: rcl_interfaces/msg/ParameterEvent
+    /rosout: rcl_interfaces/msg/Log
+    /target: geometry_msgs/msg/PointStamped
+    /target/mask: sensor_msgs/msg/Image
+    /target/overlay: sensor_msgs/msg/Image
+    /target/position_cam: geometry_msgs/msg/PointStamped
+    /target_depth: geometry_msgs/msg/PointStamped
+  Service Servers:
+    /target_detector/describe_parameters: rcl_interfaces/srv/DescribeParameters
+    /target_detector/get_parameter_types: rcl_interfaces/srv/GetParameterTypes
+    /target_detector/get_parameters: rcl_interfaces/srv/GetParameters
+    /target_detector/get_type_description: type_description_interfaces/srv/GetTypeDescription
+    /target_detector/list_parameters: rcl_interfaces/srv/ListParameters
+    /target_detector/set_parameters: rcl_interfaces/srv/SetParameters
+    /target_detector/set_parameters_atomically: rcl_interfaces/srv/SetParametersAtomically
+  Service Clients:
+
+  Action Servers:
+
+  Action Clients:
+
+

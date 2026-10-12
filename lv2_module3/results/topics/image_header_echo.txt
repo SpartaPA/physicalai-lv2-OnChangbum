@@ -1,0 +1,45 @@
+$ ros2 topic echo --once --no-arr /camera/camera/color/image_raw
+# 2026-10-12 14:42:11 KST, 입력: results/bag/target_scene 반복 재생(--loop), 검출 노드 설정: results/topics/config
+header:
+  stamp:
+    sec: 1791782784
+    nanosec: 383653809
+  frame_id: camera_color_optical_frame
+height: 480
+width: 640
+encoding: rgb8
+is_bigendian: 0
+step: 1920
+data: '<sequence type: uint8, length: 921600>'
+---
+
+$ ros2 topic echo --once --no-arr /target/mask
+# 2026-10-12 14:42:12 KST, 입력: results/bag/target_scene 반복 재생(--loop), 검출 노드 설정: results/topics/config
+header:
+  stamp:
+    sec: 1791782785
+    nanosec: 451121826
+  frame_id: camera_color_optical_frame
+height: 480
+width: 640
+encoding: mono8
+is_bigendian: 0
+step: 640
+data: '<sequence type: uint8, length: 307200>'
+---
+
+$ ros2 topic echo --once --no-arr /target/overlay
+# 2026-10-12 14:42:13 KST, 입력: results/bag/target_scene 반복 재생(--loop), 검출 노드 설정: results/topics/config
+header:
+  stamp:
+    sec: 1791782770
+    nanosec: 707073486
+  frame_id: camera_color_optical_frame
+height: 480
+width: 640
+encoding: bgr8
+is_bigendian: 0
+step: 1920
+data: '<sequence type: uint8, length: 921600>'
+---
+

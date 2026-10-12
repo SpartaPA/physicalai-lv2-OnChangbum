@@ -1,0 +1,14 @@
+# 실행 환경 (PC, 2026-10-12 14:45:47 KST 기록)
+OS: Ubuntu 24.04.5 LTS, kernel 6.8.0-142-generic
+ROS 2: lyrical (0.13.0-3noble.20260818.174923)
+Python: 3.12.3
+OpenCV (python3 cv2): 4.6.0
+NumPy: 1.26.4
+cv_bridge: 4.1.0-3noble.20260818.111737
+rosbag2: 0.33.3-1noble.20260818.134614
+realsense2_camera: 4.57.7-3noble.20260818.145327
+rqt_image_view: 2.0.5-3noble.20260818.133427
+RMW: rmw_cyclonedds_cpp (4.1.4-3noble.20260818.092458), ROS_DOMAIN_ID=28, ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
+net.core.rmem_max=4194304, net.core.wmem_max=4194304 (/etc/sysctl.d/60-ros2-dds-buffer.conf)
+Camera: Intel RealSense D435 FW 5.15.1.55, USB 3, color 640x480 rgb8 30 Hz
+코드: physicalai-lv2-OnChangbum lv2-module3 e6aee7c (출처 Lv2_Monglian_Assignment lv2-module5-submit cc96e83)
